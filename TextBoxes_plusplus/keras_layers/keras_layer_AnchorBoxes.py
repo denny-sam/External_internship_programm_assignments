@@ -1,21 +1,3 @@
-'''
-A custom Keras layer to generate anchor boxes.
-
-Copyright (C) 2018 Pierluigi Ferrari
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-   http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-'''
-
 from __future__ import division
 import numpy as np
 import keras.backend as K
@@ -31,7 +13,7 @@ class AnchorBoxes(Layer):
 
     A set of 2D anchor boxes of different aspect ratios is created for each spatial unit of
     the input tensor. The number of anchor boxes created per unit depends on the arguments
-    `aspect_ratios` and `two_boxes_for_ar1`, in the default case it is 4. The boxes
+    `aspect_ratios`, `two_boxes_for_ar1` and `denser_prior_boxes` in the default case it is 4. The boxes
     are parameterized by the coordinate tuple `(xmin, xmax, ymin, ymax)`.
 
     The logic implemented by this layer is identical to the logic in the module
@@ -68,6 +50,7 @@ class AnchorBoxes(Layer):
                  variances=[0.1, 0.1, 0.2, 0.2],
                  coords='centroids',
                  normalize_coords=False,
+                 denser_prior_boxes=False,
                  **kwargs):
         '''
         All arguments need to be set to the same values as in the box encoding process, otherwise the behavior is undefined.
@@ -119,6 +102,7 @@ class AnchorBoxes(Layer):
         self.variances = variances
         self.coords = coords
         self.normalize_coords = normalize_coords
+        self.denser_prior_boxes = denser_prior_boxes
         # Compute the number of boxes per cell
         if (1 in aspect_ratios) and two_boxes_for_ar1:
             self.n_boxes = len(aspect_ratios) + 1
@@ -167,6 +151,9 @@ class AnchorBoxes(Layer):
                 wh_list.append((box_width, box_height))
         wh_list = np.array(wh_list)
 
+        #check whether denser prior boxes is set to true
+        denser_prior_boxes_ = self.denser_prior_boxes 
+
         # We need the shape of the input tensor
         if K.image_dim_ordering() == 'tf':
             batch_size, feature_map_height, feature_map_width, feature_map_channels = x._keras_shape
@@ -197,9 +184,15 @@ class AnchorBoxes(Layer):
             elif isinstance(self.this_offsets, (int, float)):
                 offset_height = self.this_offsets
                 offset_width = self.this_offsets
+
+        # If densor prior boxes are set then double the number of prior boxes
+        if denser_prior_boxes_:
+            self.n_boxes = 2* self.n_boxes
+
         # Now that we have the offsets and step sizes, compute the grid of anchor box center points.
         cy = np.linspace(offset_height * step_height, (offset_height + feature_map_height - 1) * step_height, feature_map_height)
         cx = np.linspace(offset_width * step_width, (offset_width + feature_map_width - 1) * step_width, feature_map_width)
+        # cy_offset_1 = np.linspace(step_height + 1 )*
         cx_grid, cy_grid = np.meshgrid(cx, cy)
         cx_grid = np.expand_dims(cx_grid, -1) # This is necessary for np.tile() to do what we want further down
         cy_grid = np.expand_dims(cy_grid, -1) # This is necessary for np.tile() to do what we want further down
@@ -272,7 +265,9 @@ class AnchorBoxes(Layer):
             'clip_boxes': self.clip_boxes,
             'variances': list(self.variances),
             'coords': self.coords,
-            'normalize_coords': self.normalize_coords
+            'normalize_coords': self.normalize_coords,
+            'denser_prior_boxes':self.denser_prior_boxes
+
         }
         base_config = super(AnchorBoxes, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
